@@ -1,0 +1,694 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard Operacional</title>
+
+  <script src="https://cdn.jsdelivr.net/npm/xlsx/dist/xlsx.full.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+  <style>
+    :root {
+      --bg: #081226;
+      --card: #111c34;
+      --card2: #172645;
+      --text: #ffffff;
+      --accent: #00e5ff;
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+      font-family: Arial, sans-serif;
+    }
+
+    body {
+      background: linear-gradient(180deg, #020817, #081226);
+      color: var(--text);
+      padding: 20px;
+    }
+
+    .topbar {
+      background: linear-gradient(90deg, #0ea5e9, #2563eb);
+      padding: 20px;
+      border-radius: 16px;
+      margin-bottom: 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 15px;
+    }
+
+    .upload {
+      background: white;
+      padding: 10px 16px;
+      border-radius: 10px;
+      color: black;
+      font-weight: bold;
+    }
+
+    .filters {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 20px;
+      flex-wrap: wrap;
+    }
+
+    select {
+      padding: 10px;
+      border-radius: 10px;
+      border: none;
+      min-width: 180px;
+    }
+
+    .cards {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+
+    .card {
+      background: var(--card);
+      border-radius: 16px;
+      padding: 20px;
+      border: 1px solid rgba(0,229,255,0.2);
+    }
+
+    .card h3 {
+      color: #f8fafc;
+      margin-bottom: 10px;
+      font-size: 14px;
+    }
+
+    .card p {
+      font-size: 28px;
+      color: #ffffff;
+      font-weight: bold;
+    }
+
+    .charts {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(450px, 1fr));
+      gap: 20px;
+    }
+
+    .chart-box {
+      background: var(--card2);
+      border-radius: 16px;
+      padding: 20px;
+      border: 1px solid rgba(0,229,255,0.2);
+      min-height: 420px;
+    }
+
+    .chart-box h2 {
+      margin-bottom: 15px;
+      color: white;
+      font-size: 20px;
+    }
+
+    canvas {
+      width: 100% !important;
+      height: 320px !important;
+    }
+  </style>
+</head>
+<body>
+
+  <div class="topbar">
+    <div>
+      <h1>Dashboard Operacional</h1>
+      <p>Análise de produtividade, máquinas e ofensores</p>
+    </div>
+
+  <div class="upload">
+  <strong>Atualização Automática Ativa</strong>
+</div>
+  </div>
+
+  <div class="filters">
+    <select id="unidadeFilter">
+      <option value="Todos">Todas Unidades</option>
+    </select>
+
+    <select id="mesFilter">
+      <option value="Todos">Todos Meses</option>
+    </select>
+  </div>
+
+  <div class="cards">
+    <div class="card">
+      <h3>Total Hectares</h3>
+      <p id="totalHectare">0</p>
+    </div>
+
+    <div class="card">
+      <h3>Horas por Máquina</h3>
+      <p id="totalHoras">0</p>
+    </div>
+
+    <div class="card">
+      <h3>Total Máquinas</h3>
+      <p id="totalMaquinas">0</p>
+    </div>
+
+    <div class="card">
+      <h3>Produtividade Média (ha/h)</h3>
+      <p id="mediaProd">0</p>
+    </div>
+  </div>
+
+  <div class="charts">
+
+    <div class="chart-box">
+      <h2>Hectares Produzidos por Dia</h2>
+      <canvas id="barChart"></canvas>
+    </div>
+
+    <div class="chart-box">
+      <h2>Horas Trabalhadas por Dia</h2>
+      <canvas id="lineChart"></canvas>
+    </div>
+
+    <div class="chart-box">
+      <h2>Top Ofensores</h2>
+      <canvas id="pieChart"></canvas>
+    </div>
+
+    <div class="chart-box">
+      <h2>Comparativo Geral entre Unidades</h2>
+      <canvas id="compareChart"></canvas>
+    </div>
+
+    <div class="chart-box">
+      <h2>Resumo Operacional</h2>
+      <canvas id="summaryChart"></canvas>
+    </div>
+
+    <div class="chart-box">
+      <h2>Projeção de Produção Mensal e Tendência</h2>
+      <canvas id="projectionChart"></canvas>
+    </div>
+
+  </div>
+
+  <script>
+    let allData = [];
+
+    let barChart;
+    let lineChart;
+    let pieChart;
+    let compareChart;
+    let summaryChart;
+    let projectionChart;
+
+// document.getElementById('excelFile').addEventListener('change', handleFile);
+    document.getElementById('unidadeFilter').addEventListener('change', renderDashboard);
+    document.getElementById('mesFilter').addEventListener('change', renderDashboard);
+
+    function handleFile(e) {
+      const file = e.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+
+      reader.onload = function(event) {
+        const data = new Uint8Array(event.target.result);
+        const workbook = XLSX.read(data, { type: 'array' });
+
+        allData = [];
+
+        workbook.SheetNames.forEach(sheetName => {
+          const worksheet = workbook.Sheets[sheetName];
+          const json = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+
+          json.forEach(row => {
+            const dataConvertida = parseExcelDate(row['data']);
+
+            allData.push({
+              unidade: row['unidade'] || sheetName,
+              data: dataConvertida,
+              hectare: Number(row['hectare']) || 0,
+              horas: Number(row['horas trabalhado']) || 0,
+              maquina: row['maquina'] || 'Não informado',
+              ofensor: row['ofensor'] || ''
+            });
+          });
+        });
+
+        populateFilters();
+        renderDashboard();
+      };
+
+      reader.readAsArrayBuffer(file);
+    }
+
+    function parseExcelDate(value) {
+      if (!value) return null;
+
+      if (typeof value === 'number') {
+        const date = XLSX.SSF.parse_date_code(value);
+        return new Date(date.y, date.m - 1, date.d);
+      }
+
+      return new Date(value);
+    }
+
+    function populateFilters() {
+      const unidadeFilter = document.getElementById('unidadeFilter');
+      const mesFilter = document.getElementById('mesFilter');
+
+      unidadeFilter.innerHTML = '<option value="Todos">Todas Unidades</option>';
+      mesFilter.innerHTML = '<option value="Todos">Todos Meses</option>';
+
+      const unidades = [...new Set(allData.map(item => item.unidade))];
+
+      unidades.forEach(unidade => {
+        unidadeFilter.innerHTML += `<option value="${unidade}">${unidade}</option>`;
+      });
+
+      const meses = [...new Set(
+        allData
+          .filter(item => item.data)
+          .map(item => item.data.getMonth())
+      )];
+
+      const nomesMeses = [
+        'Janeiro','Fevereiro','Março','Abril','Maio','Junho',
+        'Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'
+      ];
+
+      meses.forEach(mes => {
+        mesFilter.innerHTML += `<option value="${mes}">${nomesMeses[mes]}</option>`;
+      });
+    }
+
+    function renderDashboard() {
+      const unidade = document.getElementById('unidadeFilter').value;
+      const mes = document.getElementById('mesFilter').value;
+
+      let filtered = [...allData];
+
+      if (unidade !== 'Todos') {
+        filtered = filtered.filter(item => item.unidade === unidade);
+      }
+
+      if (mes !== 'Todos') {
+        filtered = filtered.filter(item =>
+          item.data && item.data.getMonth() == mes
+        );
+      }
+
+      updateCards(filtered);
+      renderBarChart(filtered);
+      renderLineChart(filtered);
+      renderPieChart(filtered);
+      renderCompareChart(mes);
+      renderSummaryChart(filtered);
+      renderProjectionChart(filtered);
+    }
+
+    function updateCards(data) {
+      const totalHectare = data.reduce((sum, item) => sum + item.hectare, 0);
+      const totalHoras = data.reduce((sum, item) => sum + item.horas, 0);
+      const maquinas = new Set(data.map(item => item.maquina)).size;
+
+      const produtividade = totalHoras > 0
+        ? totalHectare / totalHoras
+        : 0;
+
+      const horasPorMaquina = maquinas > 0
+        ? totalHoras / maquinas
+        : 0;
+
+      document.getElementById('totalHectare').innerText = totalHectare.toFixed(1) + ' ha';
+      document.getElementById('totalHoras').innerText = horasPorMaquina.toFixed(1) + ' h';
+      document.getElementById('totalMaquinas').innerText = maquinas;
+      document.getElementById('mediaProd').innerText = produtividade.toFixed(2);
+    }
+
+    function renderBarChart(data) {
+      const grouped = {};
+
+      data.forEach(item => {
+        if (!item.data) return;
+
+        const dia = item.data.toLocaleDateString('pt-BR');
+
+        grouped[dia] = (grouped[dia] || 0) + item.hectare;
+      });
+
+      if (barChart) barChart.destroy();
+
+      barChart = new Chart(document.getElementById('barChart'), {
+        type: 'bar',
+        data: {
+          labels: Object.keys(grouped),
+          datasets: [{
+            label: 'Hectares Produzidos',
+            data: Object.values(grouped),
+            backgroundColor: '#00e5ff'
+          }]
+        },
+        options: getDarkOptions()
+      });
+    }
+
+    function renderLineChart(data) {
+      const grouped = {};
+
+      data.forEach(item => {
+        if (!item.data) return;
+
+        const dia = item.data.toLocaleDateString('pt-BR');
+
+        grouped[dia] = (grouped[dia] || 0) + item.horas;
+      });
+
+      if (lineChart) lineChart.destroy();
+
+      lineChart = new Chart(document.getElementById('lineChart'), {
+        type: 'line',
+        data: {
+          labels: Object.keys(grouped),
+          datasets: [{
+            label: 'Horas Trabalhadas',
+            data: Object.values(grouped),
+            borderColor: '#38bdf8',
+            backgroundColor: 'rgba(56,189,248,0.2)',
+            fill: true,
+            tension: 0.4
+          }]
+        },
+        options: getDarkOptions()
+      });
+    }
+
+    function renderPieChart(data) {
+      const grouped = {};
+
+      data.forEach(item => {
+        if (!item.ofensor || item.ofensor.trim() === '') return;
+        if (item.horas <= 0) return;
+
+        grouped[item.ofensor] = (grouped[item.ofensor] || 0) + item.horas;
+      });
+
+      const labels = Object.keys(grouped);
+      const values = Object.values(grouped);
+
+      if (pieChart) pieChart.destroy();
+
+      pieChart = new Chart(document.getElementById('pieChart'), {
+        type: 'doughnut',
+        data: {
+          labels,
+          datasets: [{
+            label: 'Horas Perdidas',
+            data: values,
+            backgroundColor: [
+              '#06b6d4',
+              '#3b82f6',
+              '#8b5cf6',
+              '#22c55e',
+              '#f59e0b',
+              '#ef4444'
+            ]
+          }]
+        },
+        options: {
+          ...getDarkOptions(),
+          plugins: {
+            tooltip: {
+              callbacks: {
+                label: function(context) {
+                  const total = values.reduce((a,b)=>a+b,0);
+                  const value = context.raw;
+                  const perc = ((value/total)*100).toFixed(1);
+                  return `${context.label}: ${value.toFixed(1)} h (${perc}%)`;
+                }
+              }
+            }
+          }
+        }
+      });
+    }
+
+    function renderCompareChart(mesSelecionado) {
+      let dadosMes = [...allData];
+
+      if (mesSelecionado !== 'Todos') {
+        dadosMes = dadosMes.filter(item =>
+          item.data && item.data.getMonth() == mesSelecionado
+        );
+      }
+
+      const grouped = {};
+
+      dadosMes.forEach(item => {
+        grouped[item.unidade] = (grouped[item.unidade] || 0) + item.hectare;
+      });
+
+      if (compareChart) compareChart.destroy();
+
+      compareChart = new Chart(document.getElementById('compareChart'), {
+        type: 'bar',
+        data: {
+          labels: Object.keys(grouped),
+          datasets: [{
+            label: 'Comparativo Geral entre Unidades',
+            data: Object.values(grouped),
+            backgroundColor: '#3b82f6'
+          }]
+        },
+        options: getDarkOptions()
+      });
+    }
+
+    function renderSummaryChart(data) {
+      const grouped = {};
+
+      data.forEach(item => {
+        if (item.hectare <= 0) return;
+
+        grouped[item.maquina] = (grouped[item.maquina] || 0) + item.hectare;
+      });
+
+      if (summaryChart) summaryChart.destroy();
+
+      summaryChart = new Chart(document.getElementById('summaryChart'), {
+        type: 'bar',
+        data: {
+          labels: Object.keys(grouped),
+          datasets: [{
+            label: 'Hectares por Máquina',
+            data: Object.values(grouped),
+            backgroundColor: '#22c55e'
+          }]
+        },
+        options: getDarkOptions()
+      });
+    }
+
+    function renderProjectionChart(data) {
+      const grouped = {};
+
+      data.forEach(item => {
+        if (!item.data) return;
+
+        const dia = item.data.getDate();
+
+        grouped[dia] = (grouped[dia] || 0) + item.hectare;
+      });
+
+      const diasOrdenados = Object.keys(grouped)
+        .map(Number)
+        .sort((a,b)=>a-b);
+
+      if (diasOrdenados.length === 0) {
+        if (projectionChart) projectionChart.destroy();
+
+        projectionChart = new Chart(document.getElementById('projectionChart'), {
+          type: 'line',
+          data: {
+            labels: ['Sem dados'],
+            datasets: [{
+              label: 'Sem projeção disponível',
+              data: [0],
+              borderColor: '#64748b',
+              backgroundColor: 'rgba(100,116,139,0.2)',
+              fill: true,
+              tension: 0.4
+            }]
+          },
+          options: getDarkOptions()
+        });
+
+        return;
+      }
+
+      let acumulado = 0;
+
+      const valoresAcumulados = diasOrdenados.map(dia => {
+        acumulado += grouped[dia];
+        return acumulado;
+      });
+
+      const totalAtual = valoresAcumulados[valoresAcumulados.length - 1];
+      const diasTrabalhados = diasOrdenados.length;
+      const mediaDia = totalAtual / diasTrabalhados;
+      // Projeção considerando apenas dias úteis operacionais (sem domingos)
+      const hoje = new Date();
+      const anoAtual = hoje.getFullYear();
+      const mesAtual = hoje.getMonth();
+
+      const totalDiasMes = new Date(anoAtual, mesAtual + 1, 0).getDate();
+
+      let diasOperacionais = 0;
+
+      for (let dia = 1; dia <= totalDiasMes; dia++) {
+        const dataTeste = new Date(anoAtual, mesAtual, dia);
+
+        // 0 = domingo
+        if (dataTeste.getDay() !== 0) {
+          diasOperacionais++;
+        }
+      }
+
+      const projecaoFinal = mediaDia * diasOperacionais;
+
+      const linhaProjecao = diasOrdenados.map(dia => {
+        // Linha de tendência acumulada considerando evolução média operacional
+        return mediaDia * dia;
+      });
+
+      if (projectionChart) projectionChart.destroy();
+
+      projectionChart = new Chart(document.getElementById('projectionChart'), {
+        type: 'line',
+        data: {
+          labels: diasOrdenados.map(d => `Dia ${d}`),
+          datasets: [
+            {
+              label: 'Produção Acumulada Atual',
+              data: valoresAcumulados,
+              borderColor: '#22c55e',
+              backgroundColor: 'rgba(34,197,94,0.2)',
+              fill: true,
+              tension: 0.4
+            },
+            {
+              label: `Tendência Final do Mês → ${projecaoFinal.toFixed(1)} ha`,
+              data: linhaProjecao,
+              borderColor: '#f59e0b',
+              backgroundColor: 'rgba(245,158,11,0.15)',
+              borderDash: [6,6],
+              fill: false,
+              tension: 0.4
+            }
+          ]
+        },
+        options: {
+          ...getDarkOptions(),
+          plugins: {
+            legend: {
+              labels: {
+                color: '#ffffff'
+              }
+            },
+            tooltip: {
+              callbacks: {
+                label: function(context) {
+                  return `${context.dataset.label}: ${Number(context.raw).toFixed(1)} ha`;
+                }
+              }
+            }
+          }
+        }
+      });
+    }
+
+    function getDarkOptions() {
+      return {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: {
+            labels: {
+              color: '#ffffff'
+            }
+          }
+        },
+        scales: {
+          x: {
+            ticks: {
+              color: '#ffffff'
+            },
+            grid: {
+              color: 'rgba(255,255,255,0.08)'
+            }
+          },
+          y: {
+            ticks: {
+              color: '#ffffff'
+            },
+            grid: {
+              color: 'rgba(255,255,255,0.08)'
+            }
+          }
+        }
+      };
+    }
+
+    console.assert(typeof renderProjectionChart === 'function', 'renderProjectionChart ausente');
+    console.assert(typeof renderCompareChart === 'function', 'renderCompareChart ausente');
+async function carregarExcelAutomatico() {
+
+  const response = await fetch('producao.xlsx');
+
+  const arrayBuffer = await response.arrayBuffer();
+
+  const workbook = XLSX.read(arrayBuffer, { type: 'array' });
+
+  allData = [];
+
+  workbook.SheetNames.forEach(sheetName => {
+
+    const worksheet = workbook.Sheets[sheetName];
+
+    const json = XLSX.utils.sheet_to_json(worksheet, { defval: '' });
+
+    json.forEach(row => {
+
+      const dataConvertida = parseExcelDate(row['data']);
+
+      allData.push({
+        unidade: row['unidade'] || sheetName,
+        data: dataConvertida,
+        hectare: Number(row['hectare']) || 0,
+        horas: Number(row['horas trabalhado']) || 0,
+        maquina: row['maquina'] || 'Não informado',
+        ofensor: row['ofensor'] || ''
+      });
+
+    });
+
+  });
+
+  populateFilters();
+  renderDashboard();
+
+}
+
+carregarExcelAutomatico();
+
+setInterval(() => {
+  carregarExcelAutomatico();
+}, 30000);
+  </script>
+
+</body>
+</html>
